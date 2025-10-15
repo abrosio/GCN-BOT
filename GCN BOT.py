@@ -6,6 +6,7 @@ import time
 import threading
 import socket
 from typing import Dict, Any, Optional, Tuple, List
+from pathlib import Path
 
 import requests
 from gcn_kafka import Consumer
@@ -18,50 +19,43 @@ import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw, ImageFont
 from astropy.io import fits
 
-# healpy
+# healpy opzionale
 try:
     import healpy as hp  # type: ignore
     HAVE_HEALPY = True
 except Exception:
     HAVE_HEALPY = False
 
-# ========= NUOVO: cartella dati persistenti e scrivibile =========
-import sys
-from pathlib import Path
-
+# ==========================
+# CARTELLA DATI PERSISTENTI (funziona anche da .exe)
+# ==========================
 def _get_data_dir() -> Path:
-    # Permette override via variabile d'ambiente
     override = os.getenv("GCN_BOT_DATA")
     if override:
         p = Path(override).expanduser()
         p.mkdir(parents=True, exist_ok=True)
         return p
-
-    # Windows -> %APPDATA%\gcn-bot, altrimenti ~/.gcn-bot
     if os.name == "nt":
         base = Path(os.getenv("APPDATA", str(Path.home() / "AppData" / "Roaming")))
         p = base / "gcn-bot"
     else:
         p = Path.home() / ".gcn-bot"
-
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 DATA_DIR = _get_data_dir()
-# ================================================================
 
 # ==========================
-# CREDENZIALI (via ENV)
+# CREDENZIALI (Inserisci i tuoi dati)
 # ==========================
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "INSERIRE TOKEN")
-ADMIN_CHAT_ID_ENV = os.getenv("ADMIN_CHAT_ID", "INSERIRE ID")
-ADMIN_CHAT_ID = int(ADMIN_CHAT_ID_ENV) if ADMIN_CHAT_ID_ENV.isdigit() else None
+TELEGRAM_BOT_TOKEN = "***********************"
+ADMIN_CHAT_ID = *************************
 
-CLIENT_ID     = os.getenv("GCN_CLIENT_ID", "INSERIRE ID")
-CLIENT_SECRET = os.getenv("GCN_CLIENT_SECRET", " INSERIRE CHIAVE")
+CLIENT_ID     = "****************************"
+CLIENT_SECRET = "****************************
 
 # ==========================
-# TOPICS GCN
+# TOPICS GCN (validi)
 # ==========================
 TOPICS = [
     "igwn.gwalert",                       # GW JSON
@@ -73,13 +67,13 @@ TOPICS = [
 ]
 
 # ==========================
-# STORAGE (ora dentro DATA_DIR)
+# STORAGE (dentro DATA_DIR)
 # ==========================
 SEEN_FILE = str(DATA_DIR / "seen_offsets.json")   # {topic: last_offset}
 SUBS_FILE = str(DATA_DIR / "subscribers.json")    # {chat_id: {"filters":{...}, "muted": bool}}
 CIRC_FILE = str(DATA_DIR / "circulars_seen.json") # {"last_id": 12345}
 
-# Ultimo alert ricevuto 
+# Ultimo alert ricevuto (solo memoria volatile)
 LAST_ALERT: Optional[Tuple[str, Dict[str, Any]]] = None
 
 def load_json(path: str, default):
@@ -102,9 +96,6 @@ def save_json(path: str, data) -> None:
 # ==========================
 # TELEGRAM API
 # ==========================
-if not TELEGRAM_BOT_TOKEN:
-    raise RuntimeError("Missing TELEGRAM_BOT_TOKEN env var")
-
 TG = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 def tg_send_text(chat_id: int, text: str, parse_mode: Optional[str] = "HTML", reply_markup: Optional[dict] = None):
@@ -188,7 +179,6 @@ def tg_set_my_description(description: str, short_description: Optional[str] = N
 # KEYBOARDS
 # ==========================
 def keyboard_main_menu() -> dict:
-    # Menu principale: Impostazioni + Test + Help + Contatta autore
     return {
         "inline_keyboard": [
             [ {"text": "📂 Menu", "callback_data": "cmd:/menu"} ],
@@ -200,7 +190,6 @@ def keyboard_main_menu() -> dict:
     }
 
 def keyboard_submenu() -> dict:
-    # Impostazioni con back al menu principale
     return {
         "inline_keyboard": [
             [ {"text": "✅ Attiva ricezione", "callback_data": "cmd:/attivaricezione"},
@@ -228,7 +217,6 @@ def keyboard_filters_inline(filters: Dict[str, bool]) -> dict:
 # SUBSCRIBERS & FILTERS
 # ==========================
 def default_filters() -> Dict[str, bool]:
-    # Default: Swift/Fermi (solo GRB) ON; GW OFF; Circulars ON 
     return {"gw": False, "swiftfermi": True, "circulars": True}
 
 def get_user_entry(chat_id: int) -> Dict[str, Any]:
@@ -281,7 +269,6 @@ def list_subscribers() -> Dict[str, Dict[str, Any]]:
 # ==========================
 def _bytes_from_plt() -> bytes:
     fig = plt.gcf()
-    # sfondo bianco per evitare "immagini nere/vuote" 
     fig.patch.set_facecolor("white")
     buf = io.BytesIO()
     plt.tight_layout()
@@ -355,15 +342,12 @@ def make_skymap_from_healpix_fits(url: str, title="Skymap") -> Optional[bytes]:
 
 # ---- Nuovi helper per immagini dagli alert ----
 def _find_image_url_in_obj(obj: Dict[str, Any]) -> Optional[str]:
-    """Cerca url .png/.jpg/.jpeg in dizionario JSON (anche annidato)."""
     exts = (".png", ".jpg", ".jpeg")
     try:
-        # tentativi diretti su chiavi comuni
         for key in ("image_url", "image", "preview", "thumbnail", "quicklook"):
             val = obj
             if isinstance(val, dict) and key in val and isinstance(val[key], str) and val[key].lower().endswith(exts):
                 return val[key]
-        # scansione profonda
         stack = [obj]
         while stack:
             cur = stack.pop()
@@ -380,7 +364,6 @@ def _find_image_url_in_obj(obj: Dict[str, Any]) -> Optional[str]:
     return None
 
 def _find_image_url_in_text(txt: str) -> Optional[str]:
-    """Estrae prima URL .png/.jpg dal testo classic notice."""
     m = re.search(r'(https?://\S+\.(?:png|jpg|jpeg))', txt, re.I)
     return m.group(1) if m else None
 
@@ -395,24 +378,21 @@ def _download_image_bytes(url: str) -> Optional[bytes]:
         print(f"[image] download error {url}: {e}")
     return None
 
-# ======= NUOVI HELPER: RA/Dec da GCN Circular =======
+# ======= RA/Dec da GCN Circular =======
 def _sexagesimal_to_deg_ra(h: int, m: int, s: float) -> float:
-    """RA h:m:s -> gradi."""
     return (h + m/60.0 + s/3600.0) * 15.0
 
 def _sexagesimal_to_deg_dec(sign: int, d: int, m: int, s: float) -> float:
-    """Dec ±d:m:s -> gradi."""
     val = abs(d) + m/60.0 + s/3600.0
     return val * (1 if sign >= 0 else -1)
 
 def _strip_html(text: str) -> str:
     t = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
     t = re.sub(r"<[^>]+>", " ", t)
-    t = re.sub(r"&nbsp;", " ", t)  
+    t = re.sub(r"&nbsp;", " ", t)
     return re.sub(r"\s+", " ", t).strip()
 
 def fetch_circular_body(url: str) -> Optional[str]:
-    """Scarica il corpo HTML della circular."""
     try:
         r = requests.get(url, timeout=30)
         r.raise_for_status()
@@ -422,15 +402,9 @@ def fetch_circular_body(url: str) -> Optional[str]:
         return None
 
 def parse_ra_dec_from_text(text: str) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[str], Optional[str]]:
-    """
-    Cerca RA/Dec (J2000) in formato sessagesimale e l'incertezza in arcsec.
-    Ritorna: (ra_deg, dec_deg, unc_arcsec, ra_sex, dec_sex)
-    """
     if not text:
         return None, None, None, None, None
-
     t = text
-
     ra_pat = re.compile(
         r'RA\s*\(J2000\)\s*[:=]?\s*([0-2]?\d)[h:\s]+([0-5]?\d)[m:\s]+([0-5]?\d(?:\.\d+)?)[s"]?',
         re.I
@@ -471,13 +445,9 @@ def parse_ra_dec_from_text(text: str) -> Tuple[Optional[float], Optional[float],
     return ra_deg, dec_deg, unc_arcsec, ra_sex, dec_sex
 
 def extract_coords_from_circular(url: str) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[str], Optional[str]]:
-    """
-    Scarica la pagina della circular e prova a estrarre RA/Dec/uncertainty.
-    """
     html = fetch_circular_body(url)
     if not html:
         return None, None, None, None, None
-
     txt = _strip_html(html)
     ra_deg, dec_deg, unc, ra_sex, dec_sex = parse_ra_dec_from_text(txt)
     if ra_deg is None or dec_deg is None:
@@ -493,7 +463,6 @@ def fmt_float(x: Optional[float], nd=3) -> str:
     except Exception:
         return "—"
 
-# --- helper: estraggo RA/Dec da testo in più formati ---
 def _extract_radec(txt: str) -> Tuple[Optional[float], Optional[float]]:
     patterns = [
         r'RA\s*=\s*([+\-]?\d+(?:\.\d+)?)\D+DEC\s*=\s*([+\-]?\d+(?:\.\d+)?)',
@@ -517,7 +486,6 @@ def parse_igwn_json(obj: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]
         return None, {}
     superevent = obj.get("superevent_id") or obj.get("superevent") or "GW event"
     alert_type = (obj.get("alert_type") or obj.get("alerttype") or "notice").lower()
-    # SKIP preliminari
     is_prelim = ("prelim" in alert_type) or ("preliminary" in alert_type)
     if is_prelim:
         return None, {"type": "gw", "skip": True}
@@ -683,10 +651,12 @@ def send_one_with_image(chat_id: int, caption: str, meta: Dict[str, Any]):
 def consumer_loop():
     global LAST_ALERT
     seen: Dict[str, int] = load_json(SEEN_FILE, {})
+    cold_start = not bool(seen)  # <-- se non ho stato locale, evito replay al primo giro
+
     consumer = Consumer(
         config={
             "group.id": "gcn2telegram_plus",
-            "auto.offset.reset": "latest",
+            "auto.offset.reset": "latest",   # parte da tail
             "enable.auto.commit": True,
             "message.max.bytes": 20 * 1024 * 1024,
         },
@@ -713,6 +683,13 @@ def consumer_loop():
                 topic = msg.topic() or ""
                 offset = int(msg.offset() or 0)
 
+                # --- Bootstrap per primo avvio (evita replay) ---
+                if cold_start and topic not in seen:
+                    seen[topic] = offset
+                    # salvo subito per sicurezza e NON invio nulla
+                    save_json(SEEN_FILE, seen)
+                    continue
+
                 last_seen = int(seen.get(topic, -1))
                 if offset <= last_seen:
                     continue
@@ -737,16 +714,21 @@ def consumer_loop():
                         text_caption, meta = None, {}
 
                 if text_caption and meta.get("type") == "gw" and meta.get("skip"):
-                    text_caption = None  
+                    text_caption = None  # filtra preliminari
 
                 if text_caption:
-                    LAST_ALERT = (text_caption, meta)  # lasciato per eventuale uso futuro
+                    LAST_ALERT = (text_caption, meta)
                     build_and_send_with_image(text_caption, meta)
 
                 seen[topic] = offset
-                if time.time() - last_persist > 10:
+                if time.time() - last_persist > 5:
                     save_json(SEEN_FILE, seen)
                     last_persist = time.time()
+
+            # una volta popolato "seen" per tutti i topic, tolgo il flag
+            if cold_start and all(t in seen for t in TOPICS):
+                cold_start = False
+
         except Exception as e:
             print("[GCN] consumer_loop exception:", e)
             time.sleep(5)
@@ -771,6 +753,23 @@ def parse_circulars_page(html: str) -> List[Tuple[int, str, str]]:
     out = list(dedup.values())
     out.sort(key=lambda x: x[0], reverse=True)
     return out[:50]
+
+def _bootstrap_circulars_state_if_needed():
+    """Se è il primo avvio (last_id=0), inizializza allo stato corrente SENZA inviare nulla."""
+    state = load_json(CIRC_FILE, {"last_id": 0})
+    last_id = int(state.get("last_id", 0))
+    if last_id != 0:
+        return
+    try:
+        r = requests.get(CIRCULARS_URL, timeout=30)
+        if r.status_code == 200 and r.text:
+            items = parse_circulars_page(r.text)
+            if items:
+                current_max = max(cid for cid, _, _ in items)
+                save_json(CIRC_FILE, {"last_id": current_max})
+                #print(f"[Circulars] Bootstrap: impostato last_id={current_max} (nessun invio)")
+    except Exception as e:
+        print(f"[Circulars] bootstrap errore: {e}")
 
 def broadcast_circular(cid: int, title: str, url: str):
     ra_deg, dec_deg, unc, ra_sex, dec_sex = extract_coords_from_circular(url)
@@ -798,6 +797,9 @@ def broadcast_circular(cid: int, title: str, url: str):
         tg_send_text(chat_id, text)
 
 def circulars_loop():
+    # Bootstrap su primo avvio: non inviare arretrati
+    _bootstrap_circulars_state_if_needed()
+
     state = load_json(CIRC_FILE, {"last_id": 0})
     last_id = int(state.get("last_id", 0))
     print("[GCN] Circulars poller attivo.")
@@ -818,13 +820,12 @@ def circulars_loop():
 
 # ======= Test – recupera l'ultima circular pubblicata =======
 def fetch_latest_circular() -> Optional[Tuple[int, str, str]]:
-    """Scarica la pagina delle circulars e ritorna (cid, title, url) della più recente."""
     try:
         r = requests.get(CIRCULARS_URL, timeout=30)
         r.raise_for_status()
         items = parse_circulars_page(r.text)
         if items:
-            return items[0]  
+            return items[0]
     except Exception as e:
         print(f"[TestCircular] errore fetch: {e}")
     return None
@@ -890,21 +891,13 @@ def render_filters_text(chat_id: int) -> str:
     return "\n".join(lines)
 
 def tg_commands_loop():
-    # Aggiunge l'admin se definito
-    if ADMIN_CHAT_ID is not None:
-        add_subscriber(ADMIN_CHAT_ID)
-
-    # Disattiva qualunque webhook rimasto attivo (evita 409)
+    add_subscriber(ADMIN_CHAT_ID)
     tg_delete_webhook()
-
-    # Banner prima di /start
     tg_set_my_description(
-        "👋 Benvenuto! Scrivi /start per avviare il BOT e ricevere gli alert GCN.\n"
+        "👋 Benvenuto! Scrivi /start o premi Avvia per avviare il BOT e ricevere gli alert GCN.\n"
         "Di default riceverai i trigger GRB Swift/Fermi. Puoi personalizzare i filtri in qualsiasi momento.",
         short_description="Scrivi /start per avviare"
     )
-
-    # comandi nel tasto Menu di Telegram
     tg_set_my_commands([
         ("menu", "📂 Menu principale"),
         ("testriceviultimagcn", "🧪 Richiedi l’ultima GCN Circular"),
@@ -917,13 +910,11 @@ def tg_commands_loop():
     while True:
         data = tg_get_updates(update_offset)
         if not data.get("ok", False):
-            time.sleep(2)
-            continue
+            time.sleep(2); continue
 
         for upd in data.get("result", []):
             update_offset = upd["update_id"] + 1
 
-            # Callback inline (menu + toggle filtri)
             if "callback_query" in upd:
                 cb = upd["callback_query"]
                 cb_id = cb.get("id")
@@ -933,24 +924,20 @@ def tg_commands_loop():
                 chat_id = msg.get("chat", {}).get("id")
                 mid = msg.get("message_id")
 
-                # === 1) Comandi dal MENU INLINE ===
                 if data_cb.startswith("cmd:") and from_id and chat_id and mid:
                     cmd = data_cb[4:]
 
                     if cmd == "/menu":
                         tg_answer_callback_query(cb_id, "")
                         tg_edit_message_text(chat_id, mid, MAIN_MENU_TEXT, reply_markup=keyboard_main_menu()); continue
-
                     if cmd == "/impostazioni":
                         tg_answer_callback_query(cb_id, "")
                         tg_edit_message_text(chat_id, mid, SUBMENU_TEXT, reply_markup=keyboard_submenu()); continue
-
                     if cmd == "/testriceviultimagcn":
                         tg_answer_callback_query(cb_id, "⏳ Recupero ultima GCN Circular…")
                         latest = fetch_latest_circular()
                         if latest:
                             cid, title, url = latest
-              
                             ra_deg, dec_deg, unc, ra_sex, dec_sex = extract_coords_from_circular(url)
                             extra = ""
                             if ra_deg is not None and dec_deg is not None:
@@ -962,36 +949,29 @@ def tg_commands_loop():
                                 if unc is not None:
                                     extra_lines.append(f"• Uncertainty: ±{unc:.2f}\"")
                                 extra = "\n" + "\n".join(extra_lines)
-          
                             text = f"🧪 <b>Test</b>: ultima GCN Circular\n📝 <b>#{cid}</b> — {title}\n🔗 {url}{extra}"
                             tg_send_text(chat_id, text)
                         else:
                             tg_send_text(chat_id, "ℹ️ Nessuna circular trovata al momento. Riprova tra poco.")
                         continue
-
                     if cmd == "/help":
                         tg_answer_callback_query(cb_id, "")
                         tg_edit_message_text(chat_id, mid, HELP_TEXT, reply_markup=keyboard_main_menu()); continue
-
                     if cmd == "/contattaautore":
                         tg_answer_callback_query(cb_id, "")
                         tg_edit_message_text(chat_id, mid, "👤 Contatta l’autore: @antoninobrosio", reply_markup=keyboard_main_menu()); continue
-
                     if cmd == "/attivaricezione":
                         tg_answer_callback_query(cb_id, "")
                         add_subscriber(from_id); set_muted(from_id, False)
                         tg_edit_message_text(chat_id, mid, "✅ Ricezione attivata. Riceverai gli alert secondo i filtri.", reply_markup=keyboard_submenu()); continue
-
                     if cmd == "/disattivaricezione":
                         tg_answer_callback_query(cb_id, "")
                         add_subscriber(from_id); set_muted(from_id, True)
                         tg_edit_message_text(chat_id, mid, "🚫 Ricezione disattivata. Usa /attivaricezione per riattivare.", reply_markup=keyboard_submenu()); continue
-
                     if cmd in ("/filtri", "/filters"):
                         tg_answer_callback_query(cb_id, "")
                         kb = keyboard_filters_inline(get_filters(from_id))
                         tg_edit_message_text(chat_id, mid, render_filters_text(from_id), reply_markup=kb); continue
-
                     if cmd == "/status":
                         tg_answer_callback_query(cb_id, "")
                         entry = get_user_entry(from_id); muted = entry.get("muted", False)
@@ -1001,7 +981,6 @@ def tg_commands_loop():
                     tg_answer_callback_query(cb_id, "")
                     tg_edit_message_text(chat_id, mid, MAIN_MENU_TEXT, reply_markup=keyboard_main_menu()); continue
 
-                # === 2) Toggle filtri ===
                 if data_cb.startswith("toggle:") and from_id and chat_id and mid:
                     key = data_cb.split(":", 1)[1]
                     f = get_filters(from_id)
@@ -1045,7 +1024,6 @@ def tg_commands_loop():
                 latest = fetch_latest_circular()
                 if latest:
                     cid, title, url = latest
-            
                     ra_deg, dec_deg, unc, ra_sex, dec_sex = extract_coords_from_circular(url)
                     extra = ""
                     if ra_deg is not None and dec_deg is not None:
@@ -1057,7 +1035,6 @@ def tg_commands_loop():
                         if unc is not None:
                             extra_lines.append(f"• Uncertainty: ±{unc:.2f}\"")
                         extra = "\n" + "\n".join(extra_lines)
-  
                     text = f"🧪 <b>Test</b>: ultima GCN Circular\n📝 <b>#{cid}</b> — {title}\n🔗 {url}{extra}"
                     tg_send_text(chat_id, text)
                 else:
@@ -1112,14 +1089,11 @@ def _acquire_single_instance_lock(port: int = 54673) -> Optional[socket.socket]:
         return None
 
 if __name__ == "__main__":
-    # Controllo minimo sulle credenziali GCN (consigliato ma non obbligatorio)
-    if not CLIENT_ID or not CLIENT_SECRET:
-        print("[GCN] Attenzione: GCN CLIENT_ID/CLIENT_SECRET non impostati (env GCN_CLIENT_ID / GCN_CLIENT_SECRET).")
     lock_sock = _acquire_single_instance_lock()
     if lock_sock is None:
         raise SystemExit(1)
 
-    print("✅ GCN BOT avviato. In ascolto…")
+    print(f"✅ GCN BOT avviato. Dati persistenti in: {DATA_DIR}")
     t1 = threading.Thread(target=consumer_loop, daemon=True)
     t1.start()
     t3 = threading.Thread(target=circulars_loop, daemon=True)
