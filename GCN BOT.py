@@ -25,6 +25,31 @@ try:
 except Exception:
     HAVE_HEALPY = False
 
+# ========= NUOVO: cartella dati persistenti e scrivibile =========
+import sys
+from pathlib import Path
+
+def _get_data_dir() -> Path:
+    # Permette override via variabile d'ambiente
+    override = os.getenv("GCN_BOT_DATA")
+    if override:
+        p = Path(override).expanduser()
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    # Windows -> %APPDATA%\gcn-bot, altrimenti ~/.gcn-bot
+    if os.name == "nt":
+        base = Path(os.getenv("APPDATA", str(Path.home() / "AppData" / "Roaming")))
+        p = base / "gcn-bot"
+    else:
+        p = Path.home() / ".gcn-bot"
+
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+DATA_DIR = _get_data_dir()
+# ================================================================
+
 # ==========================
 # CREDENZIALI (via ENV)
 # ==========================
@@ -48,11 +73,11 @@ TOPICS = [
 ]
 
 # ==========================
-# STORAGE
+# STORAGE (ora dentro DATA_DIR)
 # ==========================
-SEEN_FILE = "seen_offsets.json"   # {topic: last_offset}
-SUBS_FILE = "subscribers.json"    # {chat_id: {"filters":{...}, "muted": bool}}
-CIRC_FILE = "circulars_seen.json" # {"last_id": 12345}
+SEEN_FILE = str(DATA_DIR / "seen_offsets.json")   # {topic: last_offset}
+SUBS_FILE = str(DATA_DIR / "subscribers.json")    # {chat_id: {"filters":{...}, "muted": bool}}
+CIRC_FILE = str(DATA_DIR / "circulars_seen.json") # {"last_id": 12345}
 
 # Ultimo alert ricevuto 
 LAST_ALERT: Optional[Tuple[str, Dict[str, Any]]] = None
